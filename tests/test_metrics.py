@@ -5,16 +5,16 @@ from pathlib import Path
 
 import pytest
 
-from repstack_mcp.ingest import ingest_log_impl
-from repstack_mcp.metrics import compute_metrics_impl
-from repstack_mcp.models import (
+from repstack.ingest import ingest_log_impl
+from repstack.metrics import compute_metrics_impl
+from repstack.models import (
     ComputeMetricsInput,
     DateRange,
     IngestLogInput,
     LogInput,
     UserInput,
 )
-from repstack_mcp.storage import Storage
+from repstack.storage import Storage
 
 
 def _ingest_csv(
@@ -23,7 +23,7 @@ def _ingest_csv(
     session_date: str,
     user_id: str | None = None,
 ) -> str:
-    from repstack_mcp.models import IngestOptions
+    from repstack.models import IngestOptions
 
     payload = IngestLogInput(
         user=UserInput(user_id=user_id, default_unit="lb", timezone="UTC"),

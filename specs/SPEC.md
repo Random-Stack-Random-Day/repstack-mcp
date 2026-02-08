@@ -1,9 +1,9 @@
-# Project: Repstack MCP (v1) — Log Ingestion + Metrics
+# Project: RepStack (v1) — Log Ingestion + Metrics
 
 You are my build partner in Cursor. We are vibe coding, but we must stay disciplined and ship a working v1.
 
 ## Goal (v1 scope)
-Build an MCP Server called **repstack-mcp** that exposes **two tools**:
+Build an MCP Server called **repstack** that exposes **two tools**:
 1) `repstack.ingest_log` — accepts messy workout logs (text/csv/json), uses an LLM-assisted parse when needed, returns **canonical structured JSON + issues**.
 2) `repstack.compute_metrics` — deterministic analytics over stored canonical logs: weekly volume, tonnage, PRs, estimated 1RM, and flags (volume spikes, missed weeks).
 

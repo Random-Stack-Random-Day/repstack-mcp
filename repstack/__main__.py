@@ -1,4 +1,4 @@
-"""Entry point for python -m repstack_mcp."""
+"""Entry point for python -m repstack."""
 
 from .server import run
 

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from repstack_mcp.ingest import ingest_log_impl, parse_csv
-from repstack_mcp.models import IngestLogInput, IngestOptions, LogInput, UserInput
+from repstack.ingest import ingest_log_impl, parse_csv
+from repstack.models import IngestLogInput, IngestOptions, LogInput, UserInput
 
 
 def test_parse_csv_deterministic() -> None:
@@ -48,7 +48,7 @@ Pull Ups,+25,6,lb
 def test_ingest_log_csv_returns_canonical_and_tonnage() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         db = Path(tmp) / "test.db"
-        from repstack_mcp.storage import Storage
+        from repstack.storage import Storage
         storage = Storage(str(db))
         payload = IngestLogInput(
             user=UserInput(default_unit="lb", timezone="UTC"),
@@ -80,7 +80,7 @@ Squat,225,5
 
 def test_seated_row_maps_to_seated_row_not_barbell_row() -> None:
     """Conservative mapping: Seated Row must map to seated_row, not barbell_row."""
-    from repstack_mcp.normalize import resolve_exercise_id
+    from repstack.normalize import resolve_exercise_id
     eid, _ = resolve_exercise_id("Seated Row")
     assert eid == "seated_row"
     eid2, _ = resolve_exercise_id("Barbell Row")
@@ -89,7 +89,7 @@ def test_seated_row_maps_to_seated_row_not_barbell_row() -> None:
 
 def test_romanian_deadlift_maps_to_romanian_deadlift_not_deadlift() -> None:
     """Conservative mapping: Romanian Deadlift maps to romanian_deadlift, not deadlift."""
-    from repstack_mcp.normalize import resolve_exercise_id
+    from repstack.normalize import resolve_exercise_id
     eid, _ = resolve_exercise_id("Romanian Deadlift")
     assert eid == "romanian_deadlift"
     eid2, _ = resolve_exercise_id("Deadlift")

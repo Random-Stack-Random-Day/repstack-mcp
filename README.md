@@ -1,114 +1,183 @@
-# Repstack MCP
+# RepStack
 
-MCP server that exposes **log ingestion** and **metrics** over canonical workout logs. Usable by Cursor, Claude Desktop, and other MCP clients via stdio. Published as **repstack-mcp** (you can add repstack-core, repstack-cli, etc. under the same Repstack umbrella).
+RepStack is an MCP-compliant capability server that normalizes strength training data into a deterministic, portable schema.
 
-## Tools
+It is designed for AI-native systems that treat LLMs as probabilistic input layers, not sources of truth.
 
-1. **`repstack.ingest_log`** — Accepts workout logs as text, CSV, or JSON. Uses deterministic parsing for CSV/JSON; optional LLM-assisted parsing for messy text when `allow_llm=true`. Returns canonical structured JSON, issues, and a summary (sessions/exercises/sets detected, confidence, `canonical_sha256`).
+RepStack ingests messy workout logs (CSV, JSON, or freeform text) and produces validated, canonical session data suitable for analytics, visualization, or downstream orchestration.
 
-2. **`repstack.compute_metrics`** — Deterministic analytics over stored logs: weekly volume, tonnage, e1RM, PRs, and flags (e.g. `volume_spike` when hard_sets or tonnage increases >25% week-over-week).
+---
 
-## Resources (read-only)
+## Why RepStack Exists
 
-- `log://{log_id}/canonical` — Canonical JSON for a log.
-- `log://{log_id}/issues` — Issues for a log.
-- `user://{user_id}/recent_summary` — Last 30 days metrics summary for a user.
+Workout data in the real world is inconsistent:
 
-## How to run
+- Different apps export different formats
+- Exercise names vary wildly
+- Bodyweight movements are encoded differently (e.g. "Bodyweight", "+25 lb")
+- Dates are sometimes missing
+- Units are mixed (lb/kg)
+- Freeform text logs are common
 
-### Install
+RepStack provides a normalization layer that:
+
+- Enforces a canonical schema
+- Preserves semantic meaning (e.g., bodyweight vs weighted vs bodyweight_plus)
+- Avoids silent data corruption—unmapped exercises stay unmapped and are reported
+- Emits structured issues instead of guessing
+- Produces deterministic outputs across model variations
+
+---
+
+## Architecture Philosophy
+
+RepStack follows three core principles:
+
+1. **LLMs assist parsing but do not define correctness.** When text parsing is used, output is still validated and normalized deterministically.
+2. **Canonical validation is schema-enforced.** Pydantic models and explicit load types (weighted, bodyweight, bodyweight_plus, assisted) prevent invalid states.
+3. **Imperfect data is reported explicitly, never silently coerced.** Missing dates, unmapped exercises, and dropped sets surface as issues with locations and excerpts.
+
+This makes RepStack suitable for AI workflows, analytics engines, and multi-agent systems.
+
+---
+
+## Features (v1)
+
+- **Ingestion**
+  - CSV (Strong / Hevy-style exports supported)
+  - JSON with flexible schema detection
+  - Freeform text with optional LLM assist
+- **Canonical model**
+  - Session grouping by date
+  - Structured load modeling: `weighted`, `bodyweight`, `bodyweight_plus`, `assisted`
+  - Bodyweight sets use `weight: null` and `added_load` for added weight; no fake "0 lb"
+- **Quality and storage**
+  - Deterministic confidence scoring from issues (missing date, unmapped exercise, etc.)
+  - Explicit issue reporting (type, location, raw_excerpt)
+  - Conservative exercise mapping: exact synonyms only; uncertain names become `unmapped:<slug>`
+  - Canonical SHA256 hashing for deduplication
+  - SQLite-backed persistence (configurable via `REPSTACK_DB_PATH`)
+
+---
+
+## MCP Surface
+
+**Tools**
+
+- `repstack.ingest_log` — Ingest a workout log (text, CSV, or JSON). Returns canonical log, issues, summary, and signature. With text, set `allow_llm: true` to use an LLM parser if configured.
+- `repstack.compute_metrics` — Deterministic metrics over stored logs: weekly volume, tonnage (lb/kg), hard sets, e1rm, PRs, and flags (e.g. volume spike). Bodyweight sets are excluded from tonnage by default; excluded/unknown counts are reported.
+
+**Resources**
+
+- `log://{log_id}/canonical` — Canonical JSON for a log
+- `log://{log_id}/issues` — Issues for a log
+- `user://{user_id}/recent_summary` — Last 30 days metrics summary for a user
+
+---
+
+## Example Use Cases
+
+RepStack can be connected to:
+
+- AI assistants analyzing training history
+- Analytics dashboards
+- Health tracking tools
+- Program generation systems
+- Multi-agent orchestration pipelines
+
+It is transport-agnostic and implemented as an MCP stdio server.
+
+---
+
+## Canonical Data Model (Simplified)
+
+Each **session** contains:
+
+- `session_id`, `date` (YYYY-MM-DD), `title`, `notes`
+- **exercises[]**
+  - `exercise_raw`, `exercise_id` (snake_case or `unmapped:<slug>`), `exercise_display`
+  - **sets[]**
+    - `set_index`, `reps`, `load_type` (`weighted` | `bodyweight` | `bodyweight_plus` | `assisted`)
+    - For `weighted`: `weight`, `unit`
+    - For `bodyweight_plus`: `added_load: { value, unit }` (no `weight`)
+    - Optional: `rpe`, `set_type` (warmup | working | top | backoff), `notes`
+
+RepStack does not fabricate missing data. Uncertain or unmapped values are explicitly reported in `issues` with type (e.g. `unmapped_exercise`, `missing_date`) and location.
+
+---
+
+## Installation
+
+From the project root:
 
 ```bash
-pip install -e .
-# or
-pip install repstack-mcp
+pip install -r requirements.txt
 ```
 
-### Run the server (stdio)
-
-Clients spawn the server as a subprocess and communicate over stdin/stdout.
-
-**Option A — module:**
+Or install in editable mode with dev deps:
 
 ```bash
-python -m repstack_mcp
+pip install -e ".[dev]"
 ```
 
-**Option B — script (if installed):**
+**Run the MCP server**
 
 ```bash
-repstack-mcp
+python -m repstack.server
 ```
 
-**Option C — FastMCP CLI:**
+Or, if installed via pip:
 
 ```bash
-fastmcp run repstack_mcp/server.py
+repstack
 ```
 
-### Configure in a client (stdio)
+Optional: set `REPSTACK_DB_PATH` to a path for the SQLite database (default: `repstack.db` in the project root).
 
-Example **Cursor** config (e.g. in `.cursor/mcp.json` or Cursor settings):
+---
 
-```json
-{
-  "mcpServers": {
-    "repstack-mcp": {
-      "command": "python",
-      "args": ["-m", "repstack_mcp"],
-      "cwd": "C:/path/to/repstack"
-    }
-  }
-}
-```
+## Development
 
-Or with a virtualenv:
+**Run ingestion on sample files**
 
-```json
-{
-  "mcpServers": {
-    "repstack-mcp": {
-      "command": "C:/path/to/repstack/.venv/Scripts/python.exe",
-      "args": ["-m", "repstack_mcp"],
-      "cwd": "C:/path/to/repstack"
-    }
-  }
-}
-```
-
-**Claude Desktop** — in the config file (e.g. `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
-
-```json
-{
-  "mcpServers": {
-    "repstack-mcp": {
-      "command": "python",
-      "args": ["-m", "repstack_mcp"],
-      "cwd": "C:/path/to/repstack"
-    }
-  }
-}
-```
-
-Replace `C:/path/to/repstack` with the actual path to this project.
-
-## Environment
-
-- **`REPSTACK_MCP_DB_PATH`** — Path to SQLite DB (default: `repstack.db` in the project root).
-- **LLM parsing** — For text logs with `allow_llm=true`, an LLM parser can be registered via `repstack_mcp.llm_parser.set_llm_parser()`. If none is configured, the tool returns a clear blocking issue and does not call an LLM.
-
-## Tool contracts
-
-Input/output shapes follow the spec in `SPEC.md`. Both tools accept a single JSON object and return a JSON object (e.g. `IngestLogOutput` and `ComputeMetricsOutput`).
-
-## Tests
+From the project root:
 
 ```bash
-pytest tests/ -v
+python scripts/test_ingest.py
 ```
 
-See `tests/` for:
+Optional: pass a different samples directory:
 
-- Deterministic CSV parse
-- Text parse with mocked LLM output
-- Metrics (tonnage + `volume_spike` flag)
+```bash
+python scripts/test_ingest.py path/to/samples
+```
+
+Uses `repstack_test.db` in the project root (see `scripts/README.md` for more).
+
+**Run metrics over sample data**
+
+```bash
+python scripts/test_metrics.py
+```
+
+**Run tests**
+
+```bash
+pytest
+```
+
+---
+
+## Roadmap
+
+- Expanded exercise registry (exact synonyms; no fuzzy matching without guardrails)
+- Metrics coverage reporting
+- HTTP transport option
+- Alias resolution / taxonomy tool
+- Exercise taxonomy support
+
+---
+
+## License
+
+MIT

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Run sample files through repstack ingest_log. Uses the repstack_mcp package directly
+Run sample files through repstack ingest_log. Uses the repstack package directly.
 (no MCP server needed). Usage: python scripts/test_ingest.py [sample_dir]
 """
 from __future__ import annotations
@@ -14,10 +14,10 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from repstack_mcp.ingest import ingest_log_impl
-from repstack_mcp.models import IngestLogInput, IngestOptions, LogInput, UserInput
-from repstack_mcp.normalize import format_set_display
-from repstack_mcp.storage import Storage
+from repstack.ingest import ingest_log_impl
+from repstack.models import IngestLogInput, IngestOptions, LogInput, UserInput
+from repstack.normalize import format_set_display
+from repstack.storage import Storage
 
 
 SAMPLES_DIR = ROOT / "samples"

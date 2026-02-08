@@ -3,9 +3,9 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "repstack-mcp"
+name = "repstack"
 version = "1.0.0"
-description = "Repstack MCP server: log ingestion and metrics over canonical workout logs"
+description = "RepStack: log ingestion and metrics over canonical workout logs"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -17,8 +17,8 @@ dependencies = [
 dev = ["pytest>=7.0"]
 
 [project.scripts]
-repstack-mcp = "repstack_mcp.server:run"
+repstack = "repstack.server:run"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["repstack_mcp*"]
+include = ["repstack*"]

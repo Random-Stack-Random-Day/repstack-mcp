@@ -1,4 +1,4 @@
-"""MCP server: fitness.ingest_log, fitness.compute_metrics, and read-only resources."""
+"""MCP server: repstack.ingest_log, repstack.compute_metrics, and read-only resources."""
 
 from __future__ import annotations
 
@@ -17,11 +17,11 @@ from .models import (
 )
 from .storage import Storage
 
-# Default DB next to server (or use REPSTACK_MCP_DB_PATH)
-_db_path = os.environ.get("REPSTACK_MCP_DB_PATH", str(Path(__file__).parent.parent / "repstack.db"))
+# Default DB next to server (or use REPSTACK_DB_PATH)
+_db_path = os.environ.get("REPSTACK_DB_PATH", str(Path(__file__).parent.parent / "repstack.db"))
 _storage = Storage(_db_path)
 
-mcp = FastMCP(name="repstack-mcp")
+mcp = FastMCP(name="repstack")
 
 
 @mcp.tool(name="repstack.ingest_log")

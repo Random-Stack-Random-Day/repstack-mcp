@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from repstack_mcp.ingest import ingest_log_impl
-from repstack_mcp.llm_parser import set_llm_parser
-from repstack_mcp.models import IngestLogInput, IngestOptions, LogInput, UserInput
+from repstack.ingest import ingest_log_impl
+from repstack.llm_parser import set_llm_parser
+from repstack.models import IngestLogInput, IngestOptions, LogInput, UserInput
 
 
 def _mock_llm_parser(content: str, session_date_hint: str | None) -> list[tuple[str, list[tuple[str, list[dict]]]]]:
@@ -28,7 +28,7 @@ def test_ingest_text_with_mocked_llm() -> None:
     set_llm_parser(_mock_llm_parser)
     try:
         with tempfile.TemporaryDirectory() as tmp:
-            from repstack_mcp.storage import Storage
+            from repstack.storage import Storage
             storage = Storage(str(Path(tmp) / "test.db"))
             payload = IngestLogInput(
                 user=UserInput(default_unit="lb", timezone="UTC"),

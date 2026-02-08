@@ -34,6 +34,6 @@ def parse_text_with_llm(content: str, session_date_hint: str | None) -> list[tup
     parser = get_llm_parser()
     if parser is None:
         raise RuntimeError(
-            "LLM parser is not configured. Set REPSTACK_MCP_LLM_* env or call set_llm_parser()."
+            "LLM parser is not configured. Set REPSTACK_LLM_* env or call set_llm_parser()."
         )
     return parser(content, session_date_hint)

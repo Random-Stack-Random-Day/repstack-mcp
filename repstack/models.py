@@ -1,4 +1,4 @@
-"""Pydantic models for Repstack MCP: tool inputs/outputs and canonical log schema."""
+"""Pydantic models for RepStack: tool inputs/outputs and canonical log schema."""
 
 from __future__ import annotations
 

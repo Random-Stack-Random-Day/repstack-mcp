@@ -15,7 +15,7 @@ def _dict_factory(cursor: sqlite3.Cursor, row: tuple) -> dict:
 
 
 class Storage:
-    """SQLite-backed storage for fitness MCP."""
+    """SQLite-backed storage for RepStack."""
 
     def __init__(self, db_path: str | Path = "repstack.db"):
         self.db_path = Path(db_path)

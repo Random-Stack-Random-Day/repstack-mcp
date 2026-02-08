@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from repstack_mcp.ingest import ingest_log_impl
-from repstack_mcp.models import (
+from repstack.ingest import ingest_log_impl
+from repstack.models import (
     IngestLogInput,
     IngestOptions,
     LogInput,
     UserInput,
 )
-from repstack_mcp.storage import Storage
+from repstack.storage import Storage
 
 
 def test_messy_workout_returns_needs_clarification_and_not_stored() -> None:

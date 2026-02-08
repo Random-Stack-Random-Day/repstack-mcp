@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Ingest sample CSV/JSON files then run compute_metrics. Uses repstack_mcp directly.
+Ingest sample CSV/JSON files then run compute_metrics. Uses repstack directly.
 Usage: python scripts/test_metrics.py [sample_dir]
 """
 from __future__ import annotations
@@ -12,9 +12,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from repstack_mcp.ingest import ingest_log_impl
-from repstack_mcp.metrics import compute_metrics_impl
-from repstack_mcp.models import (
+from repstack.ingest import ingest_log_impl
+from repstack.metrics import compute_metrics_impl
+from repstack.models import (
     ComputeMetricsInput,
     DateRange,
     IngestLogInput,
@@ -22,7 +22,7 @@ from repstack_mcp.models import (
     LogInput,
     UserInput,
 )
-from repstack_mcp.storage import Storage
+from repstack.storage import Storage
 
 
 SAMPLES_DIR = ROOT / "samples"

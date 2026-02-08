@@ -1,1 +1,1 @@
-# Tests for repstack-mcp
+# Tests for repstack
