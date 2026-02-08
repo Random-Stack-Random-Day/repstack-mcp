@@ -23,6 +23,7 @@ from .normalize import (
     canonical_sha256,
     normalize_date,
     normalize_session,
+    suggest_exercises_for_unmapped,
 )
 from .storage import Storage, generate_id
 
@@ -471,9 +472,11 @@ def build_canonical_log(
     raw_sessions: list[tuple[str | None, list[tuple[str, list[dict]]]]],
     default_unit: str,
     session_date_hint: str | None,
+    source: str | None = None,
 ) -> tuple[CanonicalLog, list[IssueRecord]]:
     """
     raw_sessions: list of (date_YYYY_MM_DD or None, [(exercise_name, sets), ...])
+    source: app name for alias pack (e.g. strong, hevy); optional.
     """
     issues: list[IssueRecord] = []
     sessions: list[SessionRecord] = []
@@ -499,16 +502,19 @@ def build_canonical_log(
             norm_date,
             exercises,
             default_unit,
+            source=source,
         )
         sessions.append(sess)
         for j, ex in enumerate(sess.exercises):
             if ex.exercise_id.startswith("unmapped:"):
+                suggested = suggest_exercises_for_unmapped(ex.exercise_raw, max_suggestions=3)
                 issues.append(IssueRecord(
                     severity="warning",
                     type="unmapped_exercise",
                     location=f"sessions[{i}].exercises[{j}]",
                     message=f"Exercise not in mapping dictionary; stored as {ex.exercise_id}. Add an exact synonym if this is a known lift.",
                     raw_excerpt=ex.exercise_raw,
+                    suggested_exercise_ids=suggested if suggested else None,
                 ))
     log = CanonicalLog(sessions=sessions)
     return log, issues
@@ -610,10 +616,12 @@ def ingest_log_impl(
             signature=IngestSignature(canonical_sha256="", parser_version=PARSER_VERSION),
         )
 
+    source_app = (log_input.source.app if log_input.source else None) or None
     canonical_log, build_issues = build_canonical_log(
         raw_sessions,
         default_unit,
         options.session_date_hint,
+        source=source_app,
     )
     issues.extend(build_issues)
 

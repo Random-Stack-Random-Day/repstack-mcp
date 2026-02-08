@@ -80,10 +80,17 @@ class SetRecord(BaseModel):
         return self
 
 
+class ExerciseMapping(BaseModel):
+    """How this exercise was resolved; included in canonical output."""
+    strategy: Literal["source_pack", "global_alias", "registry_display", "registry_alias", "unmapped"]
+    score: float  # 0.0–1.0; unmapped=0
+
+
 class ExerciseRecord(BaseModel):
     exercise_raw: str
     exercise_id: str  # snake_case or "unmapped:<slug>"
     exercise_display: str
+    mapping: Optional[ExerciseMapping] = None  # v2: how the name was resolved
     sets: list[SetRecord] = Field(default_factory=list)
 
 
@@ -109,6 +116,7 @@ class IssueRecord(BaseModel):
     raw_excerpt: Optional[str] = None
     question_to_user: Optional[str] = None
     options: Optional[list[str]] = None
+    suggested_exercise_ids: Optional[list[str]] = None  # for unmapped_exercise: up to 3 close matches
 
 
 class IngestSummary(BaseModel):
@@ -122,6 +130,41 @@ class IngestSummary(BaseModel):
 class IngestSignature(BaseModel):
     canonical_sha256: str
     parser_version: str
+
+
+# --- Search exercises (registry) ---
+
+class SearchExercisesInput(BaseModel):
+    query: str
+    equipment: Optional[str] = None
+    movement_pattern: Optional[str] = None
+    limit: Optional[int] = 20
+
+
+MatchStrategy = Literal["display_exact", "alias_exact", "starts_with", "contains"]
+
+
+class SearchMatchMetadata(BaseModel):
+    strategy: MatchStrategy
+    score: float
+    matched_text: str
+    normalized_query: str
+
+
+class SearchExerciseHit(BaseModel):
+    exercise_id: str
+    display: Optional[str] = None
+    aliases: Optional[list[str]] = None
+    equipment: list[str] = Field(default_factory=list)  # v2: array of strings
+    movement_pattern: Optional[str] = None
+    match: SearchMatchMetadata
+    is_exact_match: bool
+
+
+class SearchExercisesOutput(BaseModel):
+    query: str
+    count: int
+    results: list[SearchExerciseHit] = Field(default_factory=list)
 
 
 class IngestLogOutput(BaseModel):

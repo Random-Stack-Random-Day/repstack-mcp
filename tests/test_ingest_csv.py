@@ -102,12 +102,97 @@ def test_unmapped_exercise_emits_issue_with_location_and_raw_excerpt() -> None:
         user=UserInput(default_unit="lb", timezone="UTC"),
         log_input=LogInput(
             content_type="csv",
-            content="exercise,weight,reps\nCable Fly,50,10\n",
+            content="exercise,weight,reps\nObscureLift XYZ,50,10\n",
         ),
         options=IngestOptions(session_date_hint="2025-01-15"),
     )
     result = ingest_log_impl(payload, storage=None)
     unmapped_issues = [i for i in result.issues if i.type == "unmapped_exercise"]
     assert len(unmapped_issues) == 1
-    assert unmapped_issues[0].raw_excerpt == "Cable Fly"
+    assert unmapped_issues[0].raw_excerpt == "ObscureLift XYZ"
     assert "sessions" in unmapped_issues[0].location and "exercises" in unmapped_issues[0].location
+    # No close match for obscure name -> no suggestions or empty
+    assert unmapped_issues[0].suggested_exercise_ids is None or len(unmapped_issues[0].suggested_exercise_ids) == 0
+
+
+def test_unmapped_exercise_includes_suggested_ids_when_close_match() -> None:
+    """Unmapped exercise gets up to 3 suggested_exercise_ids when display/alias substring matches."""
+    # "Seated Ro" is unmapped but "seated ro" is substring of "Seated Row" -> suggest seated_row
+    payload = IngestLogInput(
+        user=UserInput(default_unit="lb", timezone="UTC"),
+        log_input=LogInput(
+            content_type="csv",
+            content="exercise,weight,reps\nSeated Ro,50,10\n",
+        ),
+        options=IngestOptions(session_date_hint="2025-01-15"),
+    )
+    result = ingest_log_impl(payload, storage=None)
+    unmapped_issues = [i for i in result.issues if i.type == "unmapped_exercise"]
+    assert len(unmapped_issues) == 1
+    assert unmapped_issues[0].suggested_exercise_ids is not None
+    assert "seated_row" in unmapped_issues[0].suggested_exercise_ids
+    assert len(unmapped_issues[0].suggested_exercise_ids) <= 3
+
+
+def test_swap_prevention_incline_vs_flat_bench() -> None:
+    """Incline Barbell Bench Press must not map to flat barbell_bench_press."""
+    from repstack.normalize import resolve_exercise
+    eid, _, strategy, _ = resolve_exercise("Incline Barbell Bench Press")
+    assert eid == "incline_barbell_bench_press"
+    assert eid != "barbell_bench_press"
+    eid_flat, _, _, _ = resolve_exercise("Barbell Bench Press")
+    assert eid_flat == "barbell_bench_press"
+
+
+def test_swap_prevention_smith_vs_barbell() -> None:
+    """Smith Machine Bench Press must not map to barbell_bench_press."""
+    from repstack.normalize import resolve_exercise
+    eid, _, _, _ = resolve_exercise("Smith Machine Bench Press")
+    assert eid == "smith_machine_bench_press"
+    assert eid != "barbell_bench_press"
+
+
+def test_swap_prevention_dumbbell_vs_barbell_bench() -> None:
+    """Dumbbell Bench Press must not map to barbell_bench_press."""
+    from repstack.normalize import resolve_exercise
+    eid, _, _, _ = resolve_exercise("Dumbbell Bench Press")
+    assert eid == "dumbbell_bench_press"
+    assert eid != "barbell_bench_press"
+
+
+def test_source_pack_resolution_when_source_provided() -> None:
+    """When log_input.source.app is set (e.g. hevy), source pack is used first."""
+    from repstack.models import LogInputSource
+    payload = IngestLogInput(
+        user=UserInput(default_unit="lb", timezone="UTC"),
+        log_input=LogInput(
+            content_type="csv",
+            content="exercise,weight,reps\nPull Ups,0,10\n",
+            source=LogInputSource(app="hevy"),
+        ),
+        options=IngestOptions(session_date_hint="2025-01-15"),
+    )
+    result = ingest_log_impl(payload, storage=None)
+    ex = result.canonical_log.sessions[0].exercises[0]
+    assert ex.exercise_id == "pull_up"
+    assert ex.mapping is not None
+    assert ex.mapping.strategy == "source_pack"
+    assert ex.mapping.score == 1.0
+
+
+def test_canonical_exercise_includes_mapping_strategy_and_score() -> None:
+    """Each exercise in canonical output has mapping.strategy and mapping.score."""
+    payload = IngestLogInput(
+        user=UserInput(default_unit="lb", timezone="UTC"),
+        log_input=LogInput(
+            content_type="csv",
+            content="exercise,weight,reps\nBench Press,135,5\n",
+        ),
+        options=IngestOptions(session_date_hint="2025-01-15"),
+    )
+    result = ingest_log_impl(payload, storage=None)
+    assert result.canonical_log.sessions
+    ex = result.canonical_log.sessions[0].exercises[0]
+    assert ex.mapping is not None
+    assert ex.mapping.strategy in ("source_pack", "global_alias", "registry_display", "registry_alias", "unmapped")
+    assert 0 <= ex.mapping.score <= 1

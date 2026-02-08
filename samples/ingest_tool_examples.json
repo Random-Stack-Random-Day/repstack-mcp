@@ -1,0 +1,58 @@
+{
+  "description": "Example payloads for repstack.ingest_log. Use each 'payload' as the tool input.",
+  "examples": [
+    {
+      "name": "minimal CSV",
+      "payload": {
+        "user": { "default_unit": "lb", "timezone": "UTC" },
+        "log_input": {
+          "content_type": "csv",
+          "content": "exercise,weight,reps\nBench Press,135,5\nSquat,225,5"
+        }
+      }
+    },
+    {
+      "name": "CSV with date hint",
+      "payload": {
+        "user": { "default_unit": "lb", "timezone": "UTC" },
+        "log_input": {
+          "content_type": "csv",
+          "content": "exercise,weight,reps,unit\nBench Press,135,5,lb\nSquat,225,5,lb"
+        },
+        "options": { "session_date_hint": "2025-02-01" }
+      }
+    },
+    {
+      "name": "CSV with source (hevy) for alias pack",
+      "payload": {
+        "user": { "default_unit": "lb", "timezone": "UTC" },
+        "log_input": {
+          "content_type": "csv",
+          "content": "exercise,weight,reps\nPull Ups,0,10\nBarbell Row,135,8",
+          "source": { "app": "hevy" }
+        },
+        "options": { "session_date_hint": "2025-02-01" }
+      }
+    },
+    {
+      "name": "flat JSON",
+      "payload": {
+        "user": { "default_unit": "lb", "timezone": "UTC" },
+        "log_input": {
+          "content_type": "json",
+          "content": "[{\"exercise\":\"Bench Press\",\"weight\":135,\"reps\":5,\"unit\":\"lb\"},{\"exercise\":\"Squat\",\"weight\":225,\"reps\":5,\"unit\":\"lb\"}]"
+        }
+      }
+    },
+    {
+      "name": "nested sessions JSON",
+      "payload": {
+        "user": { "default_unit": "lb", "timezone": "UTC" },
+        "log_input": {
+          "content_type": "json",
+          "content": "{\"sessions\":[{\"date\":\"2025-02-01\",\"exercises\":[{\"name\":\"Bench Press\",\"sets\":[{\"weight\":135,\"reps\":8,\"unit\":\"lb\"},{\"weight\":185,\"reps\":5,\"unit\":\"lb\"}]}]}]}"
+        }
+      }
+    }
+  ]
+}

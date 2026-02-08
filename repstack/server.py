@@ -14,7 +14,11 @@ from .models import (
     ComputeMetricsInput,
     DateRange,
     IngestLogInput,
+    SearchExerciseHit,
+    SearchExercisesInput,
+    SearchExercisesOutput,
 )
+from .normalize import search_exercises
 from .storage import Storage
 
 # Default DB next to server (or use REPSTACK_DB_PATH)
@@ -49,6 +53,29 @@ def repstack_compute_metrics(payload: dict) -> dict:
     inp = ComputeMetricsInput.model_validate(payload)
     result = compute_metrics_impl(inp, storage=_storage)
     return result.model_dump()
+
+
+@mcp.tool(name="repstack.search_exercises")
+def repstack_search_exercises(payload: dict) -> dict:
+    """
+    Search the local exercise registry by query (matches display and aliases).
+    Returns { query, count, results } with match metadata (strategy, score, matched_text, normalized_query)
+    and is_exact_match. Optional filters: equipment, movement_pattern. Optional limit (default 20).
+    """
+    inp = SearchExercisesInput.model_validate(payload)
+    limit = inp.limit if inp.limit is not None else 20
+    data = search_exercises(
+        query=inp.query,
+        equipment=inp.equipment,
+        movement_pattern=inp.movement_pattern,
+        limit=max(0, min(limit, 100)),
+    )
+    out = SearchExercisesOutput(
+        query=data["query"],
+        count=data["count"],
+        results=[SearchExerciseHit(**r) for r in data["results"]],
+    )
+    return out.model_dump()
 
 
 @mcp.resource("log://{log_id}/canonical", mime_type="application/json")

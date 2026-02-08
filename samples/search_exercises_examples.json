@@ -1,0 +1,30 @@
+{
+  "description": "Example payloads for repstack.search_exercises. Use each 'payload' as the tool input.",
+  "examples": [
+    {
+      "name": "query only",
+      "payload": { "query": "bench" }
+    },
+    {
+      "name": "query with limit",
+      "payload": { "query": "row", "limit": 5 }
+    },
+    {
+      "name": "filter by equipment",
+      "payload": { "query": "press", "equipment": "barbell", "limit": 10 }
+    },
+    {
+      "name": "filter by movement_pattern",
+      "payload": { "query": "squat", "movement_pattern": "squat", "limit": 10 }
+    },
+    {
+      "name": "full filters",
+      "payload": {
+        "query": "curl",
+        "equipment": "dumbbell",
+        "movement_pattern": "elbow_flexion",
+        "limit": 5
+      }
+    }
+  ]
+}
