@@ -1,0 +1,22 @@
+{
+  "sessions": [
+    {
+      "date": "2025-02-01",
+      "exercises": [
+        {
+          "name": "Bench Press",
+          "sets": [
+            {"weight": 135, "reps": 8, "unit": "lb"},
+            {"weight": 185, "reps": 5, "unit": "lb"}
+          ]
+        },
+        {
+          "name": "Squat",
+          "sets": [
+            {"weight": 225, "reps": 5, "unit": "lb"}
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+[
+  {"exercise": "Bench Press", "weight": 135, "reps": 5, "unit": "lb"},
+  {"exercise": "Bench Press", "weight": 145, "reps": 4, "unit": "lb"},
+  {"exercise": "Squat", "weight": 225, "reps": 5, "unit": "lb"},
+  {"exercise": "Deadlift", "weight": 275, "reps": 3, "unit": "lb"}
+]
