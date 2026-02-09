@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """
-Run sample files through repstack ingest_log. Uses the repstack package directly.
-(no MCP server needed). Usage: python scripts/test_ingest.py [sample_dir]
+Run sample files through repstack ingest_log. Stateless — no DB.
+Usage: python scripts/test_ingest.py [sample_dir]
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
-# Project root = parent of scripts/
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -17,13 +15,10 @@ if str(ROOT) not in sys.path:
 from repstack.ingest import ingest_log_impl
 from repstack.models import IngestLogInput, IngestOptions, LogInput, UserInput
 from repstack.normalize import format_set_display
-from repstack.storage import Storage
 
 
 SAMPLES_DIR = ROOT / "samples"
-DEFAULT_DB = ROOT / "repstack_test.db"
 
-# Map file to content_type and optional options
 SAMPLES = [
     ("good_workout.csv", "csv", {}),
     ("good_workout_with_date.csv", "csv", {"session_date_hint": "2025-02-01"}),
@@ -49,7 +44,6 @@ def main() -> None:
         print(f"Not a directory: {samples_dir}")
         sys.exit(1)
 
-    storage = Storage(DEFAULT_DB)
     user = UserInput(default_unit="lb", timezone="America/New_York")
 
     for filename, content_type, opts in SAMPLES:
@@ -70,16 +64,16 @@ def main() -> None:
         print(f"FILE: {filename}  (content_type={content_type})")
         print("=" * 60)
 
-        result = ingest_log_impl(payload, storage=storage)
+        result = ingest_log_impl(payload)
 
         warnings_count = sum(1 for i in result.issues if i.severity == "warning")
-        stored = result.log_id is not None
         print(f"Status: {result.status}")
-        print(f"Stored: {'yes' if stored else 'no'}")
+        print(f"Log ID: {result.log_id or '(none)'}")
         print(f"Confidence: {result.summary.confidence:.2f}")
         print(f"Warnings: {warnings_count}")
-        print(f"Log ID: {result.log_id or '(none)'}")
         print(f"Summary: sessions={result.summary.sessions_detected}  exercises={result.summary.exercises_detected}  sets={result.summary.sets_detected}")
+        if result.meta:
+            print(f"Meta: {result.meta}")
         if result.issues:
             print("Issues:")
             for i in result.issues:
@@ -93,8 +87,7 @@ def main() -> None:
                 print(f"    {ex.exercise_display}: {sets_str}")
         print()
 
-    storage.close()
-    print(f"DB saved to {DEFAULT_DB}")
+    print("(Stateless: no data persisted)")
 
 
 if __name__ == "__main__":

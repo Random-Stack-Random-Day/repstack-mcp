@@ -169,12 +169,13 @@ class SearchExercisesOutput(BaseModel):
 
 class IngestLogOutput(BaseModel):
     status: Literal["ok", "needs_clarification", "error"]
-    user_id: str
-    log_id: Optional[str] = None  # null when not stored
+    user_id: str  # client-provided or request id; no server-side identity
+    log_id: Optional[str] = None  # request-scoped id when ok and sessions present (client may use as storage key)
     canonical_log: CanonicalLog
     issues: list[IssueRecord] = Field(default_factory=list)
     summary: IngestSummary
     signature: IngestSignature
+    meta: Optional[dict] = None  # e.g. {"llm_available": bool, "llm_used": bool}
 
 
 # --- Compute metrics input ---

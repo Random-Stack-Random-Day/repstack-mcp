@@ -1,166 +1,150 @@
 # RepStack
 
-RepStack is an MCP-compliant capability server that normalizes strength training data into a deterministic, portable schema.
+RepStack is a **stateless** MCP server that normalizes strength training logs into a deterministic canonical schema.
 
-It is designed for AI-native systems that treat LLMs as probabilistic input layers, not sources of truth.
+It does **not** store users or logs. It does **not** persist data. It does **not** act as an analytics backend.
 
-RepStack ingests messy workout logs (CSV, JSON, or freeform text) and produces validated, canonical session data suitable for analytics, visualization, or downstream orchestration.
+Consumers are responsible for storing canonical output and building analytics downstream.
 
----
-
-## Why RepStack Exists
-
-Workout data in the real world is inconsistent:
-
-- Different apps export different formats
-- Exercise names vary wildly
-- Bodyweight movements are encoded differently (e.g. "Bodyweight", "+25 lb")
-- Dates are sometimes missing
-- Units are mixed (lb/kg)
-- Freeform text logs are common
-
-RepStack provides a normalization layer that:
-
-- Enforces a canonical schema
-- Preserves semantic meaning (e.g., bodyweight vs weighted vs bodyweight_plus)
-- Avoids silent data corruption—unmapped exercises stay unmapped and are reported
-- Emits structured issues instead of guessing
-- Produces deterministic outputs across model variations
+RepStack is designed to be embedded into larger fitness applications as a normalization layer.
 
 ---
 
-## Architecture Philosophy
+## What RepStack Does
 
-RepStack follows three core principles:
+- **Normalize** workout logs (CSV, JSON, or freeform text) into a canonical schema
+- **Optionally** use an LLM for text pre-parsing (output still goes through deterministic validation)
+- **Compute** deterministic metrics over **provided** canonical sessions or logs
+- **Provide** exercise search / registry lookup
 
-1. **LLMs assist parsing but do not define correctness.** When text parsing is used, output is still validated and normalized deterministically.
-2. **Canonical validation is schema-enforced.** Pydantic models and explicit load types (weighted, bodyweight, bodyweight_plus, assisted) prevent invalid states.
-3. **Imperfect data is reported explicitly, never silently coerced.** Missing dates, unmapped exercises, and dropped sets surface as issues with locations and excerpts.
-
-This makes RepStack suitable for AI workflows, analytics engines, and multi-agent systems.
-
----
-
-## Features (v1)
-
-- **Ingestion**
-  - CSV (Strong / Hevy-style exports supported)
-  - JSON with flexible schema detection
-  - Freeform text with optional LLM assist
-- **Canonical model**
-  - Session grouping by date
-  - Structured load modeling: `weighted`, `bodyweight`, `bodyweight_plus`, `assisted`
-  - Bodyweight sets use `weight: null` and `added_load` for added weight; no fake "0 lb"
-- **Quality and storage**
-  - Deterministic confidence scoring from issues (missing date, unmapped exercise, etc.)
-  - Explicit issue reporting (type, location, raw_excerpt)
-  - Conservative exercise mapping: exact synonyms only; uncertain names become `unmapped:<slug>`
-  - Canonical SHA256 hashing for deduplication
-  - SQLite-backed persistence (configurable via `REPSTACK_DB_PATH`)
-- **Stateless metrics**
-  - `repstack.compute_metrics` takes canonical data in the request (`sessions` or `logs`), not user id or storage. Same input always yields the same output. PR and volume-spike flags are derived only from the provided data.
-  - Guardrails: payloads over `max_sessions` or `max_sets` return `needs_clarification` with a `payload_too_large` issue.
-- **Exercise search**
-  - `repstack.search_exercises` queries the local registry by name/alias with optional equipment and movement-pattern filters.
+RepStack is a **canonicalization + deterministic compute engine**. All storage responsibility belongs to the consuming application.
 
 ---
 
-## MCP Surface
+## Design Philosophy
 
-**Tools**
+RepStack is deterministic.
 
-- `repstack.ingest_log` — Ingest a workout log (text, CSV, or JSON). Returns canonical log, issues, summary, and signature. With text, set `allow_llm: true` to use an LLM parser if configured.
-- `repstack.compute_metrics` — **Stateless** deterministic metrics from canonical data you provide. Send either `sessions` (array of canonical session objects) or `logs` (array of `{ canonical_json: { sessions } }`). Optional `range` (start/end dates) filters sessions; if omitted, all provided sessions are used. Returns weekly volume, tonnage (lb/kg), hard sets, e1rm, PRs, and flags (e.g. volume spike). Bodyweight sets are excluded from tonnage; excluded/unknown counts are reported. No storage or user identity: metrics are computed only from the payload. Payloads exceeding `max_sessions` or `max_sets` return `status: "needs_clarification"` with a `payload_too_large` issue.
-- `repstack.search_exercises` — Search the local exercise registry by query (matches display names and aliases). Returns results with match metadata (strategy, score, normalized_query) and optional filters: `equipment`, `movement_pattern`, `limit`.
-
-**Resources**
-
-- `log://{log_id}/canonical` — Canonical JSON for a log
-- `log://{log_id}/issues` — Issues for a log
-- `user://{user_id}/recent_summary` — Last 30 days metrics summary for a user (server fetches logs from storage, then runs stateless metrics on that data)
+- **Canonical structure** is enforced via schema validation.
+- **LLM parsing** (optional) is only used for text extraction; canonical correctness is never defined by LLM output.
+- **All analytics** must operate on canonical sessions passed explicitly to the tool (e.g. `repstack.compute_metrics` with `sessions` or `logs` in the payload).
+- **Uncertain matches** → `exercise_id: "unmapped:<slug>"`; no fuzzy auto-mapping. Candidates can be provided for partial matches.
 
 ---
 
-## Example Use Cases
+## Quickstart
 
-RepStack can be connected to:
+**Run the MCP server**
 
-- AI assistants analyzing training history
-- Analytics dashboards
-- Health tracking tools
-- Program generation systems
-- Multi-agent orchestration pipelines
+```bash
+pip install -r requirements.txt
+python -m repstack.server
+```
 
-It is transport-agnostic and implemented as an MCP stdio server.
+Or after editable install: `repstack`
+
+**Call the ingest tool**
+
+Example payload (CSV):
+
+```json
+{
+  "user": { "default_unit": "lb", "timezone": "UTC" },
+  "log_input": {
+    "content_type": "csv",
+    "content": "exercise,weight,reps\nBench Press,135,5\nSquat,225,5"
+  },
+  "options": { "session_date_hint": "2025-01-15" }
+}
+```
+
+Example output shape:
+
+- `status`: `"ok"` | `"needs_clarification"` | `"error"`
+- `log_id`: request-scoped id when ok (client may use as storage key)
+- `canonical_log`: `{ "sessions": [ { "date", "exercises": [ { "exercise_id", "sets": [...] } ] } ] }`
+- `issues`: list of `{ severity, type, location, message, ... }`
+- `summary`: `{ sessions_detected, exercises_detected, sets_detected, confidence }`
+- `meta`: `{ "llm_available": bool, "llm_used": bool }` (when LLM is relevant)
+
+**Call compute_metrics**
+
+Send canonical data in the request (no server-side storage):
+
+```json
+{
+  "sessions": [ { "date": "2025-01-15", "exercises": [ { "exercise_id": "barbell_bench_press", "sets": [ { "weight": 135, "unit": "lb", "reps": 5, "load_type": "weighted" } ] } ] } ],
+  "range": { "start": "2025-01-01", "end": "2025-01-31" }
+}
+```
+
+Or send `logs`: array of `{ "canonical_json": { "sessions": [...] } }`.
+
+Response: `status`, `range`, `weekly` (volume, tonnage, hard_sets, flags), `exercise_summaries`, `issues` (e.g. `payload_too_large` if over limits).
+
+---
+
+## Tool Contracts
+
+### Tool: repstack.ingest_log
+
+- **Input**: `user` (optional `user_id`, `default_unit`, `timezone`), `log_input` (`content_type`: `"csv"` | `"json"` | `"text"`, `content`), optional `options` (`session_date_hint`, `allow_llm`, `strictness`, …).
+- **Output**: `status`, `user_id`, `log_id` (when ok), `canonical_log`, `issues`, `summary`, `signature`, `meta` (`llm_available`, `llm_used`). No persistence.
+
+### Tool: repstack.compute_metrics
+
+- **Input**: **either** `sessions` (array of canonical session objects) **or** `logs` (array of `{ canonical_json: { sessions } }`). Optional `range`: `{ start, end }` (YYYY-MM-DD). Optional `options` (e1rm_formula, include_prs, …).
+- **Output**: Deterministic metrics only: `status`, `range`, `weekly`, `exercise_summaries`, `issues` (e.g. `payload_too_large`), `signature`. No user identity; no storage access.
+
+### Tool: repstack.search_exercises
+
+- **Input**: `query`, optional `equipment`, `movement_pattern`, `limit`.
+- **Output**: `query`, `count`, `results` with `exercise_id`, `display`, `match` (strategy, score, matched_text, normalized_query), `is_exact_match`.
+
+---
+
+## MCP Surface (Tools Only)
+
+- **repstack.ingest_log** — Normalize a workout log. Returns canonical log, issues, summary. Stateless.
+- **repstack.compute_metrics** — Compute metrics from provided `sessions` or `logs`. Stateless; guardrails for payload size.
+- **repstack.search_exercises** — Search exercise registry by query; optional filters.
+
+There are **no MCP resources** (no `log://`, no `user://`). Tool-only.
 
 ---
 
 ## Canonical Data Model (Simplified)
 
-Each **session** contains:
+Each **session**: `session_id`, `date` (YYYY-MM-DD), `title`, `notes`, **exercises[]**.
 
-- `session_id`, `date` (YYYY-MM-DD), `title`, `notes`
-- **exercises[]**
-  - `exercise_raw`, `exercise_id` (snake_case or `unmapped:<slug>`), `exercise_display`
-  - **sets[]**
-    - `set_index`, `reps`, `load_type` (`weighted` | `bodyweight` | `bodyweight_plus` | `assisted`)
-    - For `weighted`: `weight`, `unit`
-    - For `bodyweight_plus`: `added_load: { value, unit }` (no `weight`)
-    - Optional: `rpe`, `set_type` (warmup | working | top | backoff), `notes`
+Each **exercise**: `exercise_raw`, `exercise_id` (snake_case or `unmapped:<slug>`), `exercise_display`, **sets[]**.
 
-RepStack does not fabricate missing data. Uncertain or unmapped values are explicitly reported in `issues` with type (e.g. `unmapped_exercise`, `missing_date`) and location.
+Each **set**: `set_index`, `reps`, `load_type` (`weighted` | `bodyweight` | `bodyweight_plus` | `assisted`). For `weighted`: `weight`, `unit`. For `bodyweight_plus`: `added_load: { value, unit }`. Optional: `rpe`, `set_type`, `notes`.
+
+Unmapped or uncertain data is reported in `issues`, not silently coerced.
 
 ---
 
-## Installation
+## Non-Goals (v1)
 
-From the project root:
-
-```bash
-pip install -r requirements.txt
-```
-
-Or install in editable mode with dev deps:
-
-```bash
-pip install -e ".[dev]"
-```
-
-**Run the MCP server**
-
-```bash
-python -m repstack.server
-```
-
-Or, if installed via pip:
-
-```bash
-repstack
-```
-
-Optional: set `REPSTACK_DB_PATH` to a path for the SQLite database (default: `repstack.db` in the project root).
+- No user identity model
+- No data persistence
+- No background jobs
+- No automatic history tracking
+- No fuzzy AI exercise mapping (exact alias/display only; otherwise `unmapped:<slug>`)
 
 ---
 
 ## Development
 
-**Run ingestion on sample files**
-
-From the project root:
+**Run ingestion on samples (stateless)**
 
 ```bash
 python scripts/test_ingest.py
-```
-
-Optional: pass a different samples directory:
-
-```bash
 python scripts/test_ingest.py path/to/samples
 ```
 
-Uses `repstack_test.db` in the project root (see `scripts/README.md` for more).
-
-**Run metrics over sample data**
+**Run metrics on sample-derived sessions**
 
 ```bash
 python scripts/test_metrics.py
@@ -171,16 +155,6 @@ python scripts/test_metrics.py
 ```bash
 pytest
 ```
-
----
-
-## Roadmap
-
-- Expanded exercise registry (exact synonyms; no fuzzy matching without guardrails)
-- Metrics coverage reporting
-- HTTP transport option
-- Alias resolution / taxonomy tool
-- Exercise taxonomy support
 
 ---
 

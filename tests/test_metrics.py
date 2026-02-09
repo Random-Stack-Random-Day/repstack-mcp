@@ -1,7 +1,4 @@
-"""Metrics computation test: tonnage, volume_spike, stateless API, guardrails."""
-
-import tempfile
-from pathlib import Path
+"""Metrics computation test: tonnage, volume_spike, stateless API, guardrails. No storage."""
 
 import pytest
 
@@ -14,16 +11,14 @@ from repstack.models import (
     LogInput,
     UserInput,
 )
-from repstack.storage import Storage
 
 
 def _ingest_csv(
-    storage: Storage,
     csv_content: str,
     session_date: str,
     user_id: str | None = None,
 ) -> tuple[str, list[dict]]:
-    """Ingest CSV and return (user_id, list of canonical session dicts from this log)."""
+    """Ingest CSV (stateless) and return (user_id, list of canonical session dicts)."""
     from repstack.models import IngestOptions
 
     payload = IngestLogInput(
@@ -31,32 +26,25 @@ def _ingest_csv(
         log_input=LogInput(content_type="csv", content=csv_content),
         options=IngestOptions(session_date_hint=session_date),
     )
-    result = ingest_log_impl(payload, storage=storage)
+    result = ingest_log_impl(payload)
     assert result.status == "ok", result.issues
     sessions = [s.model_dump() for s in result.canonical_log.sessions]
     return result.user_id, sessions
 
 
 def test_metrics_tonnage_and_volume_spike() -> None:
-    """Metrics from provided sessions (no storage passed to compute_metrics_impl)."""
-    with tempfile.TemporaryDirectory() as tmp:
-        db = Path(tmp) / "metrics_test.db"
-        storage = Storage(str(db))
-
-        # Week 1: 100 lb * 5 + 100 * 5 = 1000 tonnage, 2 sets
-        uid, sessions1 = _ingest_csv(
-            storage,
-            "exercise,weight,reps\nSquat,100,5\nSquat,100,5",
-            "2025-01-06",  # Monday
-        )
-        # Week 2: 200*5 + 200*5 = 2000 tonnage (>25% spike)
-        _, sessions2 = _ingest_csv(
-            storage,
-            "exercise,weight,reps\nSquat,200,5\nSquat,200,5",
-            "2025-01-13",
-            user_id=uid,
-        )
-        storage.close()
+    """Metrics from provided sessions; no storage."""
+    # Week 1: 100 lb * 5 + 100 * 5 = 1000 tonnage, 2 sets
+    uid, sessions1 = _ingest_csv(
+        "exercise,weight,reps\nSquat,100,5\nSquat,100,5",
+        "2025-01-06",  # Monday
+    )
+    # Week 2: 200*5 + 200*5 = 2000 tonnage (>25% spike)
+    _, sessions2 = _ingest_csv(
+        "exercise,weight,reps\nSquat,200,5\nSquat,200,5",
+        "2025-01-13",
+        user_id=uid,
+    )
 
     sessions = sessions1 + sessions2
     payload = ComputeMetricsInput(
@@ -83,20 +71,14 @@ def test_metrics_tonnage_and_volume_spike() -> None:
 
 
 def test_metrics_bodyweight_excluded_from_tonnage() -> None:
-    """Bodyweight sets excluded from tonnage; metrics computed from provided sessions only."""
-    with tempfile.TemporaryDirectory() as tmp:
-        db = Path(tmp) / "bw_metrics.db"
-        storage = Storage(str(db))
-        _, sessions = _ingest_csv(
-            storage,
-            "exercise,weight,reps,unit\n"
-            "Bench Press,135,5,lb\n"
-            "Pull Ups,Bodyweight,10,\n"
-            "Pull Ups,+25,6,lb\n",
-            "2025-01-06",
-        )
-        storage.close()
-
+    """Bodyweight sets excluded from tonnage; metrics from provided sessions only."""
+    _, sessions = _ingest_csv(
+        "exercise,weight,reps,unit\n"
+        "Bench Press,135,5,lb\n"
+        "Pull Ups,Bodyweight,10,\n"
+        "Pull Ups,+25,6,lb\n",
+        "2025-01-06",
+    )
     payload = ComputeMetricsInput(
         sessions=sessions,
         range=DateRange(start="2025-01-01", end="2025-01-31"),

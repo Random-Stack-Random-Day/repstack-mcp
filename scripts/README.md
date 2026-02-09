@@ -31,17 +31,17 @@ Optional: pass a different samples directory:
 python scripts/test_ingest.py path/to/samples
 ```
 
-Uses a local DB at `repstack_test.db` in the project root.
+Stateless: no database; results are printed only.
 
 ## test_metrics.py
 
-Ingests `good_workout.csv` and `good_workout_with_date.csv` (as two “weeks”), then runs `repstack.compute_metrics` for that range and prints weekly stats and exercise summaries.
+Ingests `good_workout.csv` and `good_workout_with_date.csv` (as two “weeks”), collects canonical sessions, then runs `repstack.compute_metrics` on that data and prints weekly stats and exercise summaries.
 
 ```bash
 python scripts/test_metrics.py
 ```
 
-Also uses `repstack_test.db`.
+Stateless: no database.
 
 ## test_search.py
 

@@ -46,36 +46,32 @@ Pull Ups,+25,6,lb
 
 
 def test_ingest_log_csv_returns_canonical_and_tonnage() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        db = Path(tmp) / "test.db"
-        from repstack.storage import Storage
-        storage = Storage(str(db))
-        payload = IngestLogInput(
-            user=UserInput(default_unit="lb", timezone="UTC"),
-            log_input=LogInput(
-                content_type="csv",
-                content="""exercise,weight,reps
+    payload = IngestLogInput(
+        user=UserInput(default_unit="lb", timezone="UTC"),
+        log_input=LogInput(
+            content_type="csv",
+            content="""exercise,weight,reps
 Bench Press,135,5
 Bench Press,145,4
 Squat,225,5
 """,
-            ),
-        )
-        result = ingest_log_impl(payload, storage=storage)
-        storage.close()
-        assert result.status == "ok"
-        assert result.log_id is not None and result.log_id.startswith("log_")
-        assert result.summary.sessions_detected == 1
-        assert result.summary.exercises_detected == 2
-        assert result.summary.sets_detected == 3
-        assert len(result.canonical_log.sessions) == 1
-        sess = result.canonical_log.sessions[0]
-        assert len(sess.exercises) == 2
-        bench = next(e for e in sess.exercises if "bench" in e.exercise_id.lower())
-        assert len(bench.sets) == 2
-        assert bench.sets[0].weight == 135 and bench.sets[0].reps == 5
-        assert result.signature.canonical_sha256
-        assert result.signature.parser_version
+        ),
+        options=IngestOptions(session_date_hint="2025-01-15"),
+    )
+    result = ingest_log_impl(payload)
+    assert result.status == "ok"
+    assert result.log_id is not None and result.log_id.startswith("log_")
+    assert result.summary.sessions_detected == 1
+    assert result.summary.exercises_detected == 2
+    assert result.summary.sets_detected == 3
+    assert len(result.canonical_log.sessions) == 1
+    sess = result.canonical_log.sessions[0]
+    assert len(sess.exercises) == 2
+    bench = next(e for e in sess.exercises if "bench" in e.exercise_id.lower())
+    assert len(bench.sets) == 2
+    assert bench.sets[0].weight == 135 and bench.sets[0].reps == 5
+    assert result.signature.canonical_sha256
+    assert result.signature.parser_version
 
 
 def test_seated_row_maps_to_seated_row_not_barbell_row() -> None:
@@ -106,7 +102,7 @@ def test_unmapped_exercise_emits_issue_with_location_and_raw_excerpt() -> None:
         ),
         options=IngestOptions(session_date_hint="2025-01-15"),
     )
-    result = ingest_log_impl(payload, storage=None)
+    result = ingest_log_impl(payload)
     unmapped_issues = [i for i in result.issues if i.type == "unmapped_exercise"]
     assert len(unmapped_issues) == 1
     assert unmapped_issues[0].raw_excerpt == "ObscureLift XYZ"
@@ -126,7 +122,7 @@ def test_unmapped_exercise_includes_suggested_ids_when_close_match() -> None:
         ),
         options=IngestOptions(session_date_hint="2025-01-15"),
     )
-    result = ingest_log_impl(payload, storage=None)
+    result = ingest_log_impl(payload)
     unmapped_issues = [i for i in result.issues if i.type == "unmapped_exercise"]
     assert len(unmapped_issues) == 1
     assert unmapped_issues[0].suggested_exercise_ids is not None
@@ -172,7 +168,7 @@ def test_source_pack_resolution_when_source_provided() -> None:
         ),
         options=IngestOptions(session_date_hint="2025-01-15"),
     )
-    result = ingest_log_impl(payload, storage=None)
+    result = ingest_log_impl(payload)
     ex = result.canonical_log.sessions[0].exercises[0]
     assert ex.exercise_id == "pull_up"
     assert ex.mapping is not None
@@ -190,7 +186,7 @@ def test_canonical_exercise_includes_mapping_strategy_and_score() -> None:
         ),
         options=IngestOptions(session_date_hint="2025-01-15"),
     )
-    result = ingest_log_impl(payload, storage=None)
+    result = ingest_log_impl(payload)
     assert result.canonical_log.sessions
     ex = result.canonical_log.sessions[0].exercises[0]
     assert ex.mapping is not None

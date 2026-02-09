@@ -1,4 +1,4 @@
-"""Ingest workflow: parse (CSV/JSON/text), normalize, validate, store."""
+"""Ingest workflow: parse (CSV/JSON/text), normalize, validate. Stateless — no persistence."""
 
 from __future__ import annotations
 
@@ -25,7 +25,10 @@ from .normalize import (
     normalize_session,
     suggest_exercises_for_unmapped,
 )
-from .storage import Storage, generate_id
+
+
+def _generate_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
 def _default_options(opts: IngestOptions | None) -> IngestOptions:
@@ -522,18 +525,21 @@ def build_canonical_log(
 
 def ingest_log_impl(
     payload: IngestLogInput,
-    storage: Storage | None = None,
     llm_parser: Any = None,
 ) -> IngestLogOutput:
     """
-    Main ingest workflow. If storage is provided, persists log and issues.
-    llm_parser: callable(content: str) -> list[tuple[str, list[tuple[str, list[dict]]]]] or None.
+    Stateless ingest: parse, normalize, validate. Does not persist.
+    llm_parser: optional callable(content: str, date_hint: str | None) -> raw_sessions; used only when content_type=text and allow_llm=true.
     """
     options = _default_options(payload.options)
     user = payload.user
     log_input = payload.log_input
     default_unit = user.default_unit
-    user_id = (storage.ensure_user(user) if storage else (user.user_id or generate_id("user")))
+    # Optional client-provided correlation id; no server-side user identity
+    user_id = user.user_id or _generate_id("req")
+
+    llm_available = llm_parser is not None
+    llm_used = False
 
     issues: list[IssueRecord] = []
     raw_sessions: list[tuple[str, list[tuple[str, list[dict]]]]] = []
@@ -568,6 +574,7 @@ def ingest_log_impl(
         if options.allow_llm and llm_parser:
             try:
                 raw_sessions = llm_parser(log_input.content, options.session_date_hint)
+                llm_used = True
             except Exception as e:
                 issues.append(IssueRecord(
                     severity="blocking",
@@ -577,12 +584,23 @@ def ingest_log_impl(
                 ))
         elif options.allow_llm and not llm_parser:
             issues.append(IssueRecord(
-                severity="blocking",
-                type="llm_not_configured",
+                severity="warning",
+                type="llm_unavailable",
                 location="text",
-                message="Text parsing with LLM was requested (allow_llm=true) but LLM parser is not configured.",
-                question_to_user="Use allow_llm=false and provide CSV/JSON, or configure an LLM parser.",
+                message="allow_llm=true but no LLM parser is configured; falling back to deterministic parser.",
             ))
+            parsed, text_issues = parse_text_fallback(log_input.content)
+            issues.extend(text_issues)
+            if not parsed:
+                issues.append(IssueRecord(
+                    severity="blocking",
+                    type="parse_error",
+                    location="text",
+                    message="No valid sets could be extracted from text. Use format 'Exercise 135x5' or '3x5 at 225' with exercise name in context. Use CSV/JSON or set allow_llm=true if LLM is configured.",
+                    raw_excerpt=log_input.content[:200].strip() if log_input.content else None,
+                ))
+            else:
+                raw_sessions = [(options.session_date_hint, parsed)]
         else:
             parsed, text_issues = parse_text_fallback(log_input.content)
             issues.extend(text_issues)
@@ -614,6 +632,7 @@ def ingest_log_impl(
             issues=issues,
             summary=IngestSummary(confidence=0.0),
             signature=IngestSignature(canonical_sha256="", parser_version=PARSER_VERSION),
+            meta={"llm_available": llm_available, "llm_used": llm_used},
         )
 
     source_app = (log_input.source.app if log_input.source else None) or None
@@ -656,13 +675,9 @@ def ingest_log_impl(
     else:
         status = "ok"
 
-    # Storage gate: only store when status ok and confidence >= threshold
-    log_id: str | None = None
     sha = canonical_sha256(canonical_log)
-    if status == "ok" and confidence >= CONFIDENCE_THRESHOLD and storage and canonical_log.sessions:
-        log_id = generate_id("log")
-        storage.store_log(log_id, user_id, canonical_log, sha)
-        storage.store_issues(log_id, issues)
+    # Return a request-scoped id when we have sessions (client may use it as storage key)
+    log_id = _generate_id("log") if (status == "ok" and canonical_log.sessions) else None
 
     return IngestLogOutput(
         status=status,
@@ -678,4 +693,5 @@ def ingest_log_impl(
             confidence=confidence,
         ),
         signature=IngestSignature(canonical_sha256=sha, parser_version=PARSER_VERSION),
+        meta={"llm_available": llm_available, "llm_used": llm_used},
     )

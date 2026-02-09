@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Ingest sample CSV/JSON files then run compute_metrics. Uses repstack directly.
+Ingest sample CSV/JSON files (stateless), collect canonical sessions, then run compute_metrics.
 Usage: python scripts/test_metrics.py [sample_dir]
 """
 from __future__ import annotations
@@ -22,20 +22,15 @@ from repstack.models import (
     LogInput,
     UserInput,
 )
-from repstack.storage import Storage
 
 
 SAMPLES_DIR = ROOT / "samples"
-DEFAULT_DB = ROOT / "repstack_test.db"
 
 
 def main() -> None:
     samples_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else SAMPLES_DIR
-    storage = Storage(DEFAULT_DB)
-    user = UserInput(default_unit="lb", timezone="UTC")
-
-    # Ingest a couple of good logs (different dates) so we have data for metrics
-    uid = None
+    # Ingest sample files (stateless), collect canonical sessions
+    all_sessions: list[dict] = []
     for name, path in [
         ("week1", samples_dir / "good_workout.csv"),
         ("week2", samples_dir / "good_workout_with_date.csv"),
@@ -44,33 +39,29 @@ def main() -> None:
             continue
         content = path.read_text(encoding="utf-8", errors="replace")
         date_hint = "2025-01-27" if name == "week1" else "2025-02-01"
-        # Use same user_id for both so metrics see all logs
         payload = IngestLogInput(
-            user=UserInput(user_id=uid, default_unit="lb", timezone="UTC"),
+            user=UserInput(default_unit="lb", timezone="UTC"),
             log_input=LogInput(content_type="csv", content=content),
             options=IngestOptions(session_date_hint=date_hint),
         )
-        result = ingest_log_impl(payload, storage=storage)
-        uid = result.user_id
-        print(f"Ingested {name}: log_id={result.log_id}  status={result.status}  sets={result.summary.sets_detected}")
+        result = ingest_log_impl(payload)
+        if result.status == "ok" and result.canonical_log.sessions:
+            for s in result.canonical_log.sessions:
+                all_sessions.append(s.model_dump())
+            print(f"Ingested {name}: log_id={result.log_id}  sets={result.summary.sets_detected}")
 
-    if not uid:
-        print("No logs ingested (sample files missing?). Exiting.")
-        storage.close()
+    if not all_sessions:
+        print("No sessions from sample files. Exiting.")
         sys.exit(1)
 
-    # Fetch canonical logs and compute metrics (stateless: pass logs, no storage to compute_metrics)
     range_ = DateRange(start="2025-01-01", end="2025-02-28")
-    logs = storage.get_logs_for_user(uid, range_.start, range_.end)
-    storage.close()
-    metrics_input = ComputeMetricsInput(logs=logs, range=range_)
+    metrics_input = ComputeMetricsInput(sessions=all_sessions, range=range_)
     metrics = compute_metrics_impl(metrics_input)
 
     print("\n" + "=" * 60)
-    print("COMPUTE_METRICS")
+    print("COMPUTE_METRICS (stateless)")
     print("=" * 60)
     print(f"Status: {metrics.status}")
-    print(f"User: {uid}")
     print(f"Range: {metrics.range.start} to {metrics.range.end}")
     print("\nWeekly:")
     for w in metrics.weekly:
@@ -79,8 +70,6 @@ def main() -> None:
     print("\nExercise summaries (top 5):")
     for ex in metrics.exercise_summaries[:5]:
         print(f"  {ex.exercise_id}: sessions={ex.sessions}  best_e1rm={ex.best_e1rm}  hard_sets={ex.total_hard_sets}")
-
-    print(f"\nDB: {DEFAULT_DB}")
 
 
 if __name__ == "__main__":

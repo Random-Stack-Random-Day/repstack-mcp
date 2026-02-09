@@ -1,10 +1,6 @@
-"""MCP server: repstack.ingest_log, repstack.compute_metrics, and read-only resources."""
+"""MCP server: repstack.ingest_log, repstack.compute_metrics, repstack.search_exercises. Tool-only, stateless."""
 
 from __future__ import annotations
-
-import json
-import os
-from pathlib import Path
 
 from fastmcp import FastMCP
 
@@ -12,18 +8,12 @@ from .ingest import ingest_log_impl
 from .metrics import compute_metrics_impl
 from .models import (
     ComputeMetricsInput,
-    DateRange,
     IngestLogInput,
     SearchExerciseHit,
     SearchExercisesInput,
     SearchExercisesOutput,
 )
 from .normalize import search_exercises
-from .storage import Storage
-
-# Default DB next to server (or use REPSTACK_DB_PATH)
-_db_path = os.environ.get("REPSTACK_DB_PATH", str(Path(__file__).parent.parent / "repstack.db"))
-_storage = Storage(_db_path)
 
 mcp = FastMCP(name="repstack")
 
@@ -32,7 +22,7 @@ mcp = FastMCP(name="repstack")
 def repstack_ingest_log(payload: dict) -> dict:
     """
     Ingest a workout log (text, CSV, or JSON). Returns canonical structured JSON, issues, and summary.
-    When content_type is text, set allow_llm=true to use LLM parsing if configured.
+    Stateless: does not store anything. Set allow_llm=true for text and configure an LLM parser to use it; response includes meta.llm_available and meta.llm_used.
     """
     inp = IngestLogInput.model_validate(payload)
     llm_parser = None
@@ -41,7 +31,7 @@ def repstack_ingest_log(payload: dict) -> dict:
         llm_parser = get_llm_parser()
     except Exception:
         pass
-    result = ingest_log_impl(inp, storage=_storage, llm_parser=llm_parser)
+    result = ingest_log_impl(inp, llm_parser=llm_parser)
     return result.model_dump()
 
 
@@ -79,37 +69,6 @@ def repstack_search_exercises(payload: dict) -> dict:
         results=[SearchExerciseHit(**r) for r in data["results"]],
     )
     return out.model_dump()
-
-
-@mcp.resource("log://{log_id}/canonical", mime_type="application/json")
-def resource_log_canonical(log_id: str) -> str:
-    """Read-only: canonical JSON for a given log_id."""
-    row = _storage.get_log(log_id)
-    if not row:
-        return json.dumps({"error": "log not found", "log_id": log_id})
-    return json.dumps(row["canonical_json"], indent=2)
-
-
-@mcp.resource("log://{log_id}/issues", mime_type="application/json")
-def resource_log_issues(log_id: str) -> str:
-    """Read-only: issues for a given log_id."""
-    issues = _storage.get_issues(log_id)
-    return json.dumps(issues, indent=2)
-
-
-@mcp.resource("user://{user_id}/recent_summary", mime_type="application/json")
-def resource_user_recent_summary(user_id: str) -> str:
-    """Read-only: last 30 days metrics summary for user."""
-    from datetime import datetime, timedelta
-    end = datetime.utcnow().date()
-    start = end - timedelta(days=30)
-    range_ = DateRange(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"))
-    logs = _storage.get_logs_for_user(user_id, range_.start, range_.end)
-    inp = ComputeMetricsInput(logs=logs, range=range_)
-    result = compute_metrics_impl(inp)
-    out = result.model_dump()
-    out["user_id"] = user_id
-    return json.dumps(out, indent=2)
 
 
 def run() -> None:
