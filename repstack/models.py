@@ -192,9 +192,17 @@ class ComputeMetricsOptions(BaseModel):
 
 
 class ComputeMetricsInput(BaseModel):
-    user_id: str
-    range: DateRange
+    """Stateless input: provide either sessions (canonical) or logs (list of { canonical_json })."""
+    sessions: Optional[list[dict]] = None  # canonical session dicts: { date, exercises: [ { exercise_id, sets } ] }
+    logs: Optional[list[dict]] = None       # list of { canonical_json: { sessions: [...] } }
+    range: Optional[DateRange] = None      # optional filter; if omitted, all provided sessions used
     options: Optional[ComputeMetricsOptions] = None
+
+    @model_validator(mode="after")
+    def _require_sessions_or_logs(self) -> "ComputeMetricsInput":
+        if (self.sessions is None) == (self.logs is None):
+            raise ValueError("Exactly one of 'sessions' or 'logs' must be provided")
+        return self
 
 
 # --- Compute metrics output ---
@@ -245,9 +253,10 @@ class MetricsSignature(BaseModel):
 
 
 class ComputeMetricsOutput(BaseModel):
-    status: Literal["ok", "error"]
-    user_id: str
+    status: Literal["ok", "error", "needs_clarification"]
+    user_id: Optional[str] = None  # not set for stateless (sessions/logs) calls
     range: DateRange
     weekly: list[WeeklyMetrics] = Field(default_factory=list)
     exercise_summaries: list[ExerciseSummary] = Field(default_factory=list)
+    issues: list[IssueRecord] = Field(default_factory=list)
     signature: MetricsSignature

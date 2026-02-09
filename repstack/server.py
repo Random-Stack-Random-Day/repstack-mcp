@@ -48,10 +48,13 @@ def repstack_ingest_log(payload: dict) -> dict:
 @mcp.tool(name="repstack.compute_metrics")
 def repstack_compute_metrics(payload: dict) -> dict:
     """
-    Compute deterministic metrics over stored logs: weekly volume, tonnage, e1rm, PRs, volume_spike flags.
+    Compute deterministic metrics from provided canonical data (stateless).
+    Provide either `sessions` (array of canonical session objects) or `logs` (array of { canonical_json: { sessions } }).
+    Optional `range`: { start, end } (YYYY-MM-DD) to filter; if omitted, all provided sessions are used.
+    Returns weekly volume, tonnage, e1rm, PRs, volume_spike flags. Payloads exceeding max_sessions or max_sets return needs_clarification.
     """
     inp = ComputeMetricsInput.model_validate(payload)
-    result = compute_metrics_impl(inp, storage=_storage)
+    result = compute_metrics_impl(inp)
     return result.model_dump()
 
 
@@ -101,9 +104,12 @@ def resource_user_recent_summary(user_id: str) -> str:
     end = datetime.utcnow().date()
     start = end - timedelta(days=30)
     range_ = DateRange(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"))
-    inp = ComputeMetricsInput(user_id=user_id, range=range_)
-    result = compute_metrics_impl(inp, storage=_storage)
-    return json.dumps(result.model_dump(), indent=2)
+    logs = _storage.get_logs_for_user(user_id, range_.start, range_.end)
+    inp = ComputeMetricsInput(logs=logs, range=range_)
+    result = compute_metrics_impl(inp)
+    out = result.model_dump()
+    out["user_id"] = user_id
+    return json.dumps(out, indent=2)
 
 
 def run() -> None:

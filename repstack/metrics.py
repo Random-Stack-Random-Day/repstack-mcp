@@ -11,14 +11,16 @@ from .models import (
     ComputeMetricsOutput,
     DateRange,
     ExerciseSummary,
+    IssueRecord,
     MetricsSignature,
     PRRecord,
     TopSetRecord,
     WeeklyMetrics,
 )
-from .storage import Storage
 
 METRICS_VERSION = "1.0.0"
+MAX_SESSIONS = 500
+MAX_SETS = 10_000
 
 
 def e1rm_epley(weight: float, reps: int) -> float:
@@ -63,23 +65,81 @@ def _in_range(date_str: str, start: str, end: str) -> bool:
     return start <= date_str <= end
 
 
-def compute_metrics_impl(
-    payload: ComputeMetricsInput,
-    storage: Storage,
-) -> ComputeMetricsOutput:
-    """Compute weekly and exercise-level metrics from stored logs."""
-    user_id = payload.user_id
-    range_ = payload.range
+def _normalize_sessions_from_input(payload: ComputeMetricsInput) -> tuple[list[dict], DateRange, int]:
+    """Produce list of canonical session dicts, the date range to use, and total set count."""
+    if payload.sessions:
+        raw = list(payload.sessions)
+    else:
+        raw = []
+        for row in payload.logs or []:
+            canonical = row.get("canonical_json", {})
+            raw.extend(canonical.get("sessions", []))
+    if payload.range:
+        start, end = payload.range.start, payload.range.end
+        filtered = [s for s in raw if s.get("date") and _in_range(s["date"], start, end)]
+        range_ = payload.range
+    else:
+        filtered = [s for s in raw if s.get("date")]
+        if not filtered:
+            range_ = DateRange(start="1970-01-01", end="1970-01-01")
+        else:
+            dates = [s["date"] for s in filtered]
+            range_ = DateRange(start=min(dates), end=max(dates))
+    total_sets = sum(
+        len(ex.get("sets", []))
+        for s in filtered
+        for ex in s.get("exercises", [])
+    )
+    return filtered, range_, total_sets
+
+
+def compute_metrics_impl(payload: ComputeMetricsInput) -> ComputeMetricsOutput:
+    """Compute weekly and exercise-level metrics from provided canonical sessions or logs (stateless)."""
     from .models import ComputeMetricsOptions
+
     opts = payload.options or ComputeMetricsOptions()
     formula = opts.e1rm_formula
     include_prs = opts.include_prs
 
-    logs = storage.get_logs_for_user(user_id, range_.start, range_.end)
-    if not logs:
+    sessions, range_, total_sets = _normalize_sessions_from_input(payload)
+
+    # Guardrails: reject oversized payloads
+    if len(sessions) > MAX_SESSIONS:
+        return ComputeMetricsOutput(
+            status="needs_clarification",
+            range=range_,
+            weekly=[],
+            exercise_summaries=[],
+            issues=[
+                IssueRecord(
+                    severity="blocking",
+                    type="payload_too_large",
+                    location="sessions",
+                    message=f"Payload exceeds maximum sessions ({len(sessions)} > {MAX_SESSIONS}).",
+                )
+            ],
+            signature=MetricsSignature(metrics_version=METRICS_VERSION),
+        )
+    if total_sets > MAX_SETS:
+        return ComputeMetricsOutput(
+            status="needs_clarification",
+            range=range_,
+            weekly=[],
+            exercise_summaries=[],
+            issues=[
+                IssueRecord(
+                    severity="blocking",
+                    type="payload_too_large",
+                    location="sets",
+                    message=f"Payload exceeds maximum sets ({total_sets} > {MAX_SETS}).",
+                )
+            ],
+            signature=MetricsSignature(metrics_version=METRICS_VERSION),
+        )
+
+    if not sessions:
         return ComputeMetricsOutput(
             status="ok",
-            user_id=user_id,
             range=range_,
             weekly=[],
             exercise_summaries=[],
@@ -87,17 +147,14 @@ def compute_metrics_impl(
         )
 
     # Flatten: (weight, unit, reps, set_type, e1rm, load_type, added_weight, added_unit)
-    # weight/unit None for bodyweight; for bodyweight_plus use added_weight/added_unit for tonnage only
     sets_by_date_ex: dict[str, list[tuple[float | None, str | None, int, str | None, float | None, str, float | None, str | None]]] = defaultdict(list)
-    for log_row in logs:
-        canonical = log_row.get("canonical_json", {})
-        for sess in canonical.get("sessions", []):
-            date_str = sess.get("date")
-            if not date_str or not _in_range(date_str, range_.start, range_.end):
-                continue
-            for ex in sess.get("exercises", []):
-                ex_id = ex.get("exercise_id", "")
-                for s in ex.get("sets", []):
+    for sess in sessions:
+        date_str = sess.get("date")
+        if not date_str:
+            continue
+        for ex in sess.get("exercises", []):
+            ex_id = ex.get("exercise_id", "")
+            for s in ex.get("sets", []):
                     load_type = (s.get("load_type") or "weighted").strip().lower()
                     if load_type not in ("weighted", "bodyweight", "bodyweight_plus", "assisted"):
                         load_type = "weighted"
@@ -269,7 +326,6 @@ def compute_metrics_impl(
 
     return ComputeMetricsOutput(
         status="ok",
-        user_id=user_id,
         range=range_,
         weekly=weekly_out,
         exercise_summaries=exercise_summaries,

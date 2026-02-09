@@ -59,18 +59,18 @@ def main() -> None:
         storage.close()
         sys.exit(1)
 
-    # Compute metrics for a range that includes both weeks
-    metrics_input = ComputeMetricsInput(
-        user_id=uid,
-        range=DateRange(start="2025-01-01", end="2025-02-28"),
-    )
-    metrics = compute_metrics_impl(metrics_input, storage=storage)
+    # Fetch canonical logs and compute metrics (stateless: pass logs, no storage to compute_metrics)
+    range_ = DateRange(start="2025-01-01", end="2025-02-28")
+    logs = storage.get_logs_for_user(uid, range_.start, range_.end)
+    storage.close()
+    metrics_input = ComputeMetricsInput(logs=logs, range=range_)
+    metrics = compute_metrics_impl(metrics_input)
 
     print("\n" + "=" * 60)
     print("COMPUTE_METRICS")
     print("=" * 60)
     print(f"Status: {metrics.status}")
-    print(f"User: {metrics.user_id}")
+    print(f"User: {uid}")
     print(f"Range: {metrics.range.start} to {metrics.range.end}")
     print("\nWeekly:")
     for w in metrics.weekly:
@@ -80,7 +80,6 @@ def main() -> None:
     for ex in metrics.exercise_summaries[:5]:
         print(f"  {ex.exercise_id}: sessions={ex.sessions}  best_e1rm={ex.best_e1rm}  hard_sets={ex.total_hard_sets}")
 
-    storage.close()
     print(f"\nDB: {DEFAULT_DB}")
 
 

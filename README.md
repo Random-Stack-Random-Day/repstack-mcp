@@ -57,6 +57,11 @@ This makes RepStack suitable for AI workflows, analytics engines, and multi-agen
   - Conservative exercise mapping: exact synonyms only; uncertain names become `unmapped:<slug>`
   - Canonical SHA256 hashing for deduplication
   - SQLite-backed persistence (configurable via `REPSTACK_DB_PATH`)
+- **Stateless metrics**
+  - `repstack.compute_metrics` takes canonical data in the request (`sessions` or `logs`), not user id or storage. Same input always yields the same output. PR and volume-spike flags are derived only from the provided data.
+  - Guardrails: payloads over `max_sessions` or `max_sets` return `needs_clarification` with a `payload_too_large` issue.
+- **Exercise search**
+  - `repstack.search_exercises` queries the local registry by name/alias with optional equipment and movement-pattern filters.
 
 ---
 
@@ -65,13 +70,14 @@ This makes RepStack suitable for AI workflows, analytics engines, and multi-agen
 **Tools**
 
 - `repstack.ingest_log` — Ingest a workout log (text, CSV, or JSON). Returns canonical log, issues, summary, and signature. With text, set `allow_llm: true` to use an LLM parser if configured.
-- `repstack.compute_metrics` — Deterministic metrics over stored logs: weekly volume, tonnage (lb/kg), hard sets, e1rm, PRs, and flags (e.g. volume spike). Bodyweight sets are excluded from tonnage by default; excluded/unknown counts are reported.
+- `repstack.compute_metrics` — **Stateless** deterministic metrics from canonical data you provide. Send either `sessions` (array of canonical session objects) or `logs` (array of `{ canonical_json: { sessions } }`). Optional `range` (start/end dates) filters sessions; if omitted, all provided sessions are used. Returns weekly volume, tonnage (lb/kg), hard sets, e1rm, PRs, and flags (e.g. volume spike). Bodyweight sets are excluded from tonnage; excluded/unknown counts are reported. No storage or user identity: metrics are computed only from the payload. Payloads exceeding `max_sessions` or `max_sets` return `status: "needs_clarification"` with a `payload_too_large` issue.
+- `repstack.search_exercises` — Search the local exercise registry by query (matches display names and aliases). Returns results with match metadata (strategy, score, normalized_query) and optional filters: `equipment`, `movement_pattern`, `limit`.
 
 **Resources**
 
 - `log://{log_id}/canonical` — Canonical JSON for a log
 - `log://{log_id}/issues` — Issues for a log
-- `user://{user_id}/recent_summary` — Last 30 days metrics summary for a user
+- `user://{user_id}/recent_summary` — Last 30 days metrics summary for a user (server fetches logs from storage, then runs stateless metrics on that data)
 
 ---
 
