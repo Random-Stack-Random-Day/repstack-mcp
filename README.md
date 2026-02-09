@@ -45,6 +45,8 @@ Or after editable install: `repstack`
 
 **Call the ingest tool**
 
+For **text** logs you can use the LLM to pre-parse: set `content_type: "text"` and `options.allow_llm: true`. The server will use an LLM if one is configured (see [Configuring the LLM](#configuring-the-llm)); otherwise it adds a warning and falls back to the deterministic parser. The response includes `meta.llm_available` and `meta.llm_used`.
+
 Example payload (CSV):
 
 ```json
@@ -66,6 +68,19 @@ Example output shape:
 - `issues`: list of `{ severity, type, location, message, ... }`
 - `summary`: `{ sessions_detected, exercises_detected, sets_detected, confidence }`
 - `meta`: `{ "llm_available": bool, "llm_used": bool }` (when LLM is relevant)
+
+Example payload for **text + LLM**:
+
+```json
+{
+  "user": { "default_unit": "lb", "timezone": "UTC" },
+  "log_input": {
+    "content_type": "text",
+    "content": "Bench 135x5 145x4, Squat 225x5x3, RDL 135x8"
+  },
+  "options": { "session_date_hint": "2025-01-15", "allow_llm": true }
+}
+```
 
 **Call compute_metrics**
 
@@ -110,6 +125,56 @@ Response: `status`, `range`, `weekly` (volume, tonnage, hard_sets, flags), `exer
 - **repstack.search_exercises** — Search exercise registry by query; optional filters.
 
 There are **no MCP resources** (no `log://`, no `user://`). Tool-only.
+
+---
+
+## Configuring the LLM
+
+The LLM is **server-side** and **provider-agnostic**: you choose which provider to use via env or by registering a parser. The tool payload cannot pass an API key or provider.
+
+**Option 1: Env — swappable provider**
+
+Set **`REPSTACK_LLM_PROVIDER`** to the name of a registered provider (e.g. `openai`). The server will call that provider’s loader when the ingest tool first needs a parser.
+
+**Built-in provider: `openai`**
+
+- `REPSTACK_LLM_PROVIDER=openai` (or leave unset and set only the key below; it defaults to openai)
+- `REPSTACK_OPENAI_API_KEY` — your API key
+- `REPSTACK_OPENAI_MODEL` — optional; default `gpt-4o-mini`
+
+Requires the `openai` package: `pip install openai` or `pip install repstack[llm]`.
+
+**Adding another provider (e.g. Anthropic, local model)**
+
+Register a loader that reads its own env and returns a parser (or `None`):
+
+```python
+from repstack.llm_parser import register_llm_provider, parse_llm_workout_json, WORKOUT_EXTRACTION_SYSTEM
+
+def load_anthropic_parser():
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return None
+    # ... create client, then return a function (content, session_date_hint) -> raw_sessions
+    # that calls your API and returns parse_llm_workout_json(response_text)
+    return my_anthropic_parser_fn
+
+register_llm_provider("anthropic", load_anthropic_parser)
+```
+
+Then set `REPSTACK_LLM_PROVIDER=anthropic` (and the provider’s env vars). The shared contract is the JSON shape and `parse_llm_workout_json()` / `WORKOUT_EXTRACTION_SYSTEM` in `repstack.llm_parser`.
+
+**Option 2: Embedding — `set_llm_parser(fn)`**
+
+If you run RepStack inside your own app, you can set the parser directly (overrides env):
+
+```python
+from repstack.llm_parser import set_llm_parser
+
+set_llm_parser(my_parser_fn)  # (content: str, session_date_hint: str | None) -> raw_sessions
+```
+
+Parser signature: return `list[tuple[str | None, list[tuple[str, list[dict]]]]]` — each tuple is `(date or None, [(exercise_name, [set_dict, ...]), ...])`; each `set_dict` has at least `weight`, `reps`, `unit`, and optionally `load_type`, `added_weight`.
 
 ---
 
